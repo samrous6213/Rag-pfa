@@ -1,0 +1,22 @@
+# Data
+data/
+*.pdf
+*.csv
+*.json
+
+# Env
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Ollama models
+data/ollama/

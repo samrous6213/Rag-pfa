@@ -1,0 +1,42 @@
+# k8s/api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-rag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-rag
+  template:
+    metadata:
+      labels:
+        app: api-rag
+    spec:
+      containers:
+      - name: api-rag
+        image: smart-book-prices-api-rag:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        env:
+        - name: QDRANT_HOST
+          value: "qdrant-service"
+        - name: OLLAMA_HOST
+          value: "ollama-service"
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-rag-service
+spec:
+  selector:
+    app: api-rag
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: NodePort

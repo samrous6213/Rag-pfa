@@ -293,4 +293,4 @@ Le socle local de recherche est opérationnel : Qdrant et MinIO démarrent avec 
 
 Projet de fin d'année (PFA) : **Plateforme RAG**
 
-Auteur : **à compléter**
+Auteur : **Sara Amrous**

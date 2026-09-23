@@ -8,7 +8,7 @@ from ragas.metrics import (
 )
 from datasets import Dataset
 
-# Préparer les données de test
+# Préparer les donnés de test
 test_data = {
     "question": ["Quels sont les congés ?", "Comment demander un congé ?"],
     "answer": ["Les congés sont de 25 jours...", "Il faut remplir un formulaire..."],

@@ -1,0 +1,18 @@
+FROM apache/airflow:2.7.1-python3.10
+
+USER airflow
+
+# Timeout pip plus généreux + retries
+ENV PIP_DEFAULT_TIMEOUT=300
+ENV PIP_RETRIES=10
+
+RUN pip install --no-cache-dir \
+    sentence-transformers==2.2.2 \
+    qdrant-client==1.6.4 \
+    langchain==0.1.20 \
+    langchain-community==0.0.38 \
+    langchain-text-splitters==0.0.1 \
+    pypdf==3.17.1 \
+    minio==7.2.0 \
+    huggingface_hub==0.24.5 \
+    transformers==4.30.2

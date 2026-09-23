@@ -1,5 +1,73 @@
 services:
-  # ===== VECTOR DB =====
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    image: rag-airflow:latest
+    container_name: airflow-webserver
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'
+      AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: 'Europe/Paris'
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - rag-network
+
+  airflow-scheduler:
+    image: rag-airflow:latest
+    container_name: airflow-scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./logs:/opt/airflow/logs
+    command: scheduler
+    networks:
+      - rag-network
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -11,9 +79,8 @@ services:
     networks:
       - rag-network
 
-  # ===== STOCKAGE OBJET =====
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: minio
     ports:
       - "9000:9000"
@@ -24,87 +91,17 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - ./data/minio:/data
-    networks:
-      - rag-network
-
-  # ===== LLM LOCAL =====
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./data/ollama:/root/.ollama
-    networks:
-      - rag-network
-
-  # ===== ORCHESTRATION =====
-  airflow-webserver:
-    image: apache/airflow:2.7.1-python3.10
-    container_name: airflow-webserver
-    depends_on:
-      - postgres
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./scripts:/opt/airflow/scripts
-      - ./data:/opt/airflow/data
-    ports:
-      - "8080:8080"
-    command: webserver
-    networks:
-      - rag-network
-
-  airflow-scheduler:
-    image: apache/airflow:2.7.1-python3.10
-    container_name: airflow-scheduler
-    depends_on:
-      - postgres
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./scripts:/opt/airflow/scripts
-      - ./data:/opt/airflow/data
-    command: scheduler
-    networks:
-      - rag-network
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: postgres
-    environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    networks:
-      - rag-network
-
-  # ===== API RAG =====
-  api-rag:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: api-rag
-    depends_on:
-      - qdrant
-      - ollama
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./api:/app
-    environment:
-      - QDRANT_HOST=qdrant
-      - OLLAMA_HOST=ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
     networks:
       - rag-network
 
 networks:
   rag-network:
     driver: bridge
+
+volumes:
+  postgres_data:

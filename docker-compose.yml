@@ -1,4 +1,5 @@
 services:
+  # ===== BASE DE DONNÉES AIRFLOW =====
   postgres:
     image: postgres:15-alpine
     container_name: postgres
@@ -18,11 +19,9 @@ services:
     networks:
       - rag-network
 
+  # ===== ORCHESTRATION AIRFLOW =====
   airflow-webserver:
-    build:
-      context: .
-      dockerfile: Dockerfile.airflow
-    image: rag-airflow:latest
+    image: apache/airflow:2.7.1-python3.10
     container_name: airflow-webserver
     depends_on:
       postgres:
@@ -33,6 +32,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'
       AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: 'Europe/Paris'
+      _PIP_ADDITIONAL_REQUIREMENTS: 'sentence-transformers==2.2.2 qdrant-client==1.6.4 langchain==0.1.20 langchain-community==0.0.38 langchain-text-splitters==0.0.1 pypdf==3.17.1 minio==7.2.0 huggingface_hub==0.24.5 transformers==4.30.2'
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
@@ -50,7 +50,7 @@ services:
       - rag-network
 
   airflow-scheduler:
-    image: rag-airflow:latest
+    image: apache/airflow:2.7.1-python3.10
     container_name: airflow-scheduler
     depends_on:
       postgres:
@@ -59,6 +59,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      _PIP_ADDITIONAL_REQUIREMENTS: 'sentence-transformers==2.2.2 qdrant-client==1.6.4 langchain==0.1.20 langchain-community==0.0.38 langchain-text-splitters==0.0.1 pypdf==3.17.1 minio==7.2.0 huggingface_hub==0.24.5 transformers==4.30.2'
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
@@ -68,6 +69,7 @@ services:
     networks:
       - rag-network
 
+  # ===== VECTOR DB =====
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -79,6 +81,7 @@ services:
     networks:
       - rag-network
 
+  # ===== STOCKAGE OBJET =====
   minio:
     image: quay.io/minio/minio:latest
     container_name: minio
@@ -96,6 +99,16 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - rag-network
+  
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
     networks:
       - rag-network
 

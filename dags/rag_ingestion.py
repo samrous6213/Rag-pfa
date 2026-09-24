@@ -26,7 +26,7 @@ default_args = {
 # URLs internes au réseau Docker
 QDRANT_URL = 'http://qdrant:6333'
 MINIO_URL = 'http://minio:9000'
-OLLAMA_URL = 'http://host.docker.internal:11434'
+OLLAMA_URL = 'http://ollama:11434'
 
 
 def check_services(**context):

@@ -1,5 +1,5 @@
 """
-Services externes : Qdrant, Embeddings et Ollama
+Services externes : Qdrant, Embeddings et Ollama , connexions à Qdrant, Ollama, Sentence Transformers
 """
 
 import logging

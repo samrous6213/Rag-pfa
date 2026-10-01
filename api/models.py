@@ -1,5 +1,5 @@
 """
-Modèles Pydantic pour l'API RAG
+Modèles Pydantic pour l'API RAG , schémas Pydantic (format des requêtes/réponses)
 """
 
 from pydantic import BaseModel, Field

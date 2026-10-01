@@ -1,5 +1,5 @@
 """
-Logique RAG : Retrieval + Augmentation + Generation
+Logique RAG : Retrieval + Augmentation + Generation , logique métier RAG (recherche + génération)
 """
 
 import logging

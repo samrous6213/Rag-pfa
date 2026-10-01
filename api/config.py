@@ -1,5 +1,5 @@
 """
-Configuration centralisée de l'API RAG
+Configuration centralisée de l'API RAG , variables de configuration (hosts, ports, seuils)
 """
 
 import os

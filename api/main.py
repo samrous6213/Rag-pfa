@@ -1,141 +1,198 @@
 """
-API RAG - Recherche et génération de réponses
+API RAG - Point d'entrée FastAPI
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
-import httpx
-import os
 import logging
+import time
+from contextlib import asynccontextmanager
 
-logging.basicConfig(level=logging.INFO)
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from config import settings
+from models import (
+    QueryRequest, QueryResponse,
+    SearchRequest, SearchResponse, SearchResult,
+    HealthResponse, StatsResponse
+)
+from services import qdrant_service, ollama_service, embedding_service
+from rag import answer_question, search_only
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="RAG API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Actions au démarrage et à l'arrêt"""
+    logger.info("Démarrage de l'API RAG...")
+
+    if qdrant_service.health_check():
+        logger.info("Qdrant est accessible")
+    else:
+        logger.warning("Qdrant n'est pas accessible")
+
+    if await ollama_service.health_check():
+        models = await ollama_service.list_models()
+        logger.info(f"Ollama est accessible (modèles: {models})")
+    else:
+        logger.warning("Ollama n'est pas accessible")
+
+    info = qdrant_service.get_collection_info()
+    logger.info(f"Collection : {info}")
+
+    logger.info("API prête !")
+
+    yield
+
+    logger.info("Arrêt de l'API")
+
+
+app = FastAPI(
+    title=settings.API_TITLE,
+    version=settings.API_VERSION,
+    description=settings.API_DESCRIPTION,
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-# Config
-QDRANT_HOST = os.getenv('QDRANT_HOST', 'localhost')
-OLLAMA_HOST = os.getenv('OLLAMA_HOST', 'localhost')
-COLLECTION_NAME = 'documents'
-EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
-OLLAMA_MODEL = 'mistral'
 
-# Clients
-qdrant = QdrantClient(host=QDRANT_HOST, port=6333)
-embedder = SentenceTransformer(EMBEDDING_MODEL)
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Ajoute le temps de traitement dans les headers"""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(round(process_time, 4))
+    return response
 
-class QueryRequest(BaseModel):
-    question: str
-    top_k: int = 3
 
-class Source(BaseModel):
-    text: str
-    source: str
-    page: int
+@app.get("/", tags=["Général"])
+async def root():
+    """Point d'entrée de l'API"""
+    return {
+        "name": settings.API_TITLE,
+        "version": settings.API_VERSION,
+        "status": "running",
+        "endpoints": {
+            "docs": "/docs",
+            "health": "/health",
+            "stats": "/stats",
+            "query": "/query (POST)",
+            "search": "/search (POST)"
+        }
+    }
 
-class QueryResponse(BaseModel):
-    answer: str
-    sources: list[Source]
-    confidence: float
 
-@app.get("/")
-def root():
-    return {"message": "📚 RAG API", "status": "running"}
+@app.get("/health", response_model=HealthResponse, tags=["Général"])
+async def health():
+    """Vérifie l'état des services"""
+    qdrant_ok = qdrant_service.health_check()
+    ollama_ok = await ollama_service.health_check()
 
-@app.get("/health")
-def health():
-    return {"status": "healthy", "qdrant": qdrant.get_collections() is not None}
+    status = "healthy" if (qdrant_ok and ollama_ok) else "degraded"
 
-@app.post("/query", response_model=QueryResponse)
+    return HealthResponse(
+        status=status,
+        services={
+            "qdrant": "connected" if qdrant_ok else "disconnected",
+            "ollama": "connected" if ollama_ok else "disconnected",
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "llm_model": settings.OLLAMA_MODEL
+        }
+    )
+
+
+@app.get("/stats", response_model=StatsResponse, tags=["Général"])
+async def stats():
+    """Statistiques de l'API"""
+    info = qdrant_service.get_collection_info()
+
+    return StatsResponse(
+        total_documents=info.get("points_count", 0),
+        total_queries=0,
+        avg_response_time=0.0,
+        collection_name=settings.COLLECTION_NAME,
+        embedding_model=settings.EMBEDDING_MODEL,
+        llm_model=settings.OLLAMA_MODEL
+    )
+
+
+@app.post("/query", response_model=QueryResponse, tags=["RAG"])
 async def query(request: QueryRequest):
-    """Pose une question et retourne une réponse avec sources"""
-    logger.info(f"❓ Question: {request.question}")
-    
+    """
+    Pose une question et obtient une réponse RAG avec sources.
+    """
+    logger.info(f"POST /query - Question: {request.question}")
+
     try:
-        # 1. Embedding de la question
-        query_vector = embedder.encode(request.question).tolist()
-        
-        # 2. Recherche dans Qdrant
-        results = qdrant.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
-            limit=request.top_k
+        result = await answer_question(
+            question=request.question,
+            top_k=request.top_k,
+            temperature=request.temperature,
+            include_sources=request.include_sources
         )
-        
-        if not results:
-            return QueryResponse(
-                answer="Je n'ai pas trouvé d'information pertinente dans les documents.",
-                sources=[],
-                confidence=0.0
-            )
-        
-        # 3. Préparer le contexte
-        context = "\n\n---\n\n".join([
-            f"[Document {i+1}] (source: {r.payload['source']}, page {r.payload.get('page', '?')}):\n{r.payload['text']}"
-            for i, r in enumerate(results)
-        ])
-        
-        # 4. Prompt pour le LLM
-        prompt = f"""Tu es un assistant qui répond aux questions en te basant UNIQUEMENT sur le contexte fourni.
 
-CONTEXTE:
-{context}
+        return QueryResponse(**result)
 
-QUESTION: {request.question}
-
-INSTRUCTIONS:
-- Réponds en français de manière claire et concise
-- Base-toi UNIQUEMENT sur le contexte ci-dessus
-- Si l'information n'est pas dans le contexte, dis "Je ne trouve pas cette information dans les documents"
-- Cite les sources quand c'est pertinent
-- Ne pas inventer d'informations
-
-RÉPONSE:"""
-        
-        # 5. Appel à Ollama
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"http://{OLLAMA_HOST}:11434/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False
-                }
-            )
-            llm_response = response.json()
-            answer = llm_response.get("response", "Erreur de génération")
-        
-        # 6. Sources
-        sources = [
-            Source(
-                text=r.payload['text'][:200] + "...",
-                source=r.payload['source'],
-                page=r.payload.get('page', 0)
-            )
-            for r in results
-        ]
-        
-        # 7. Score de confiance (basé sur les scores de similarité)
-        avg_score = sum(r.score for r in results) / len(results)
-        
-        logger.info(f"✅ Réponse générée (confiance: {avg_score:.2f})")
-        
-        return QueryResponse(
-            answer=answer,
-            sources=sources,
-            confidence=round(avg_score, 2)
-        )
-        
     except Exception as e:
-        logger.error(f"❌ Erreur: {e}")
+        logger.error(f"Erreur /query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search", response_model=SearchResponse, tags=["Recherche"])
+async def search(request: SearchRequest):
+    """
+    Recherche des documents similaires SANS génération LLM.
+    """
+    logger.info(f"POST /search - Query: {request.query}")
+
+    try:
+        result = search_only(request.query, request.top_k)
+
+        return SearchResponse(
+            results=[SearchResult(**r) for r in result["results"]],
+            total=result["total"],
+            query=result["query"]
+        )
+
+    except Exception as e:
+        logger.error(f"Erreur /search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Gestion globale des erreurs"""
+    logger.error(f"Erreur non gérée: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Erreur interne du serveur",
+            "detail": str(exc),
+            "path": str(request.url)
+        }
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

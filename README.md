@@ -1,80 +1,103 @@
 # Plateforme RAG
 
-Plateforme de **Retrieval Augmented Generation (RAG)** développée dans le cadre d'un projet de fin d'année (PFA). Elle permet d'interroger en langage naturel un corpus documentaire hétérogène tout en conservant la traçabilité des sources et la souveraineté des données.
+Plateforme de **Retrieval Augmented Generation (RAG)** développée dans le cadre d'un projet de fin d'année (PFA). Elle permet d'interroger en langage naturel un corpus documentaire hétérogène tout en garantissant la traçabilité des sources et la souveraineté des données.
 
-Le projet est conçu pour fonctionner sans appel à une API cloud externe : les embeddings, la recherche vectorielle et la génération de réponses sont exécutés dans l'environnement local.
+Le projet fonctionne avec des composants exécutés localement : les documents, les embeddings, la recherche vectorielle et la génération par le LLM restent dans l'infrastructure du projet, sans appel à une API cloud externe.
 
 ## Problématique
 
-> Comment concevoir et déployer une plateforme RAG capable de répondre en langage naturel à partir de documents PDF, TXT et Word, tout en garantissant la traçabilité des sources et la souveraineté des données ?
+> Comment concevoir et déployer une plateforme RAG capable de répondre en langage naturel à partir de documents PDF et TXT, tout en garantissant la traçabilité des sources et la souveraineté des données ?
 
 ## Objectifs
 
-- Ingérer des documents hétérogènes : PDF, TXT et Word.
-- Découper les documents et générer leurs embeddings.
-- Indexer les vecteurs dans Qdrant.
+- Ingérer des documents hétérogènes, notamment PDF et TXT.
+- Déposer les documents bruts dans un stockage objet MinIO.
+- Découper les documents et générer leurs embeddings avec Sentence Transformers.
+- Indexer les vecteurs et leurs métadonnées dans Qdrant.
 - Utiliser un LLM local, Mistral 7B, via Ollama.
-- Fournir des réponses accompagnées de citations des sources utilisées.
-- Déployer la plateforme avec Docker Compose puis Kubernetes sur Minikube.
-- Ajouter du monitoring avec Langfuse.
+- Fournir des réponses accompagnées des sources utilisées.
+- Orchestrer l'ingestion avec Apache Airflow.
+- Déployer progressivement la plateforme avec Docker Compose puis Kubernetes sur Minikube.
 - Évaluer la qualité du retrieval et de la génération avec RAGAS.
 
 ## Architecture
 
 ```text
-Documents (PDF / TXT / Word)
-							|
-							v
-	 Ingestion LangChain + Airflow
-							|
-							+--> Stockage objet MinIO (S3-compatible)
-							|
-							v
- Sentence Transformers : all-MiniLM-L6-v2
-							|
-							v
-			 Qdrant (base vectorielle)
-							|
+Documents PDF / TXT déposés dans data/documents/
+                         |
+                         v
+              DAG Apache Airflow (@daily)
+                         |
+                         v
+          scripts/ingest.py : ingestion multi-format
+              |                         |
+              v                         v
+ MinIO : documents-raw       LangChain : chargement et découpage
+                                       |
+                                       v
+                    all-MiniLM-L6-v2 : embeddings 384 dim.
+                                       |
+                                       v
+                         Qdrant : collection documents
+                                       |
 Question ---> Embedding ---> Recherche des passages pertinents
-																			|
-																			v
-												 Contexte + sources documentaires
-																			|
-																			v
-										 Mistral 7B local via Ollama
-																			|
-																			v
-									API FastAPI ---> Interface Streamlit
-																			|
-																			v
-									Réponse + citations des sources
+                                       |
+                                       v
+                         Contexte + métadonnées de source
+                                       |
+                                       v
+                         Ollama / Mistral 7B local
 
-Monitoring : Langfuse
-Évaluation : RAGAS
-Déploiement : Docker Compose puis Kubernetes / Minikube
+Airflow Webserver : http://localhost:8080
+Monitoring prévu : Langfuse
+Évaluation prévue : RAGAS
+Déploiement prévu : Kubernetes / Minikube
 ```
 
-Les composants sont exécutés localement afin de conserver les documents et les échanges dans l'infrastructure maîtrisée par le projet. Qdrant stocke les vecteurs et leurs métadonnées, tandis que MinIO fournit le stockage objet compatible S3.
+### Services Docker Compose
+
+La stack complète contient six services :
+
+| Service | Rôle | Accès local |
+|---|---|---|
+| `postgres` | Base PostgreSQL utilisée par Airflow | `localhost:5432` |
+| `airflow-webserver` | Interface et serveur web Airflow | `http://localhost:8080` |
+| `airflow-scheduler` | Exécution planifiée des DAGs | Interne à Docker |
+| `qdrant` | Base de données vectorielle | `http://localhost:6333` |
+| `minio` | Stockage objet compatible S3 | `http://localhost:9001` |
+| `ollama` | Serveur local du LLM Mistral | `http://localhost:11434` |
+
+Les services communiquent sur le réseau Docker `rag-network`. Le DAG utilise les noms DNS internes `qdrant`, `minio` et `ollama`, notamment `http://ollama:11434` pour Ollama. Cette organisation prépare le passage ultérieur à Kubernetes.
 
 ## Arborescence du projet
 
 ```text
 rag/
-├── dags/                         # Pipelines Apache Airflow
-├── scripts/                      # Scripts d'ingestion, d'évaluation et de test
-├── api/                          # API FastAPI
-├── ui/                           # Interface Streamlit
-├── k8s/                          # Manifestes Kubernetes
+├── dags/
+│   └── rag_ingestion.py           # DAG Airflow d'ingestion
+├── scripts/
+│   ├── ingest.py                  # Ingestion PDF/TXT, MinIO et Qdrant
+│   ├── test_search.py             # Test de recherche vectorielle
+│   └── test_pipeline.py           # Test complet du pipeline RAG
+├── api/                           # À venir : API FastAPI
+├── ui/                            # À venir : interface Streamlit
+├── k8s/                           # À venir : manifestes Kubernetes
 ├── data/
-│   ├── documents/                # Documents à ingérer
-│   ├── qdrant/                   # Données persistées de Qdrant
-│   └── minio/                    # Données persistées de MinIO
-├── docker-compose-minimal.yml    # Qdrant et MinIO pour le développement
-├── docker-compose.yml            # Configuration Docker Compose complète
-├── requirements.txt              # Dépendances Python
-├── .env                          # Variables d'environnement locales
+│   ├── documents/                 # Documents PDF et TXT à ingérer
+│   ├── qdrant/                    # Données persistées de Qdrant
+│   ├── minio/                     # Données persistées de MinIO
+│   └── ollama/                    # Modèles Ollama
+├── logs/                          # Logs Airflow, ignorés par Git
+├── Dockerfile.airflow             # Image Airflow personnalisée
+├── docker-compose.yml             # Stack complète des six services
+├── docker-compose-minimal.yml     # Ancienne stack Qdrant + MinIO
+├── requirements.txt               # Dépendances Python locales
+├── .env                           # Variables d'environnement locales
+├── .gitignore
 └── README.md
 ```
+
+Les documents de test utilisés pendant la Semaine 2 comprennent `test.txt`, `politique_rh.pdf` et `guide_tech.pdf`.
 
 ## Prérequis
 
@@ -84,13 +107,16 @@ L'environnement de développement utilisé est le suivant :
 - Python 3.9 et un environnement virtuel (`venv`) ;
 - Docker Desktop ;
 - Homebrew ;
-- Ollama avec le modèle Mistral téléchargé ;
-- Qdrant et MinIO démarrés avec `docker-compose-minimal.yml`.
+- Ollama exécuté dans Docker ;
+- une connexion Internet initiale pour télécharger les images Docker, les dépendances et le modèle d'embedding ;
+- le modèle Mistral disponible dans le volume Ollama.
 
-Les ports locaux utilisés sont :
+Ports exposés par la stack complète :
 
 | Service | Port | Usage |
 |---|---:|---|
+| PostgreSQL | `5432` | Backend Airflow |
+| Airflow | `8080` | Interface web |
 | Qdrant | `6333` | API HTTP |
 | Qdrant | `6334` | API gRPC |
 | MinIO | `9000` | API S3 |
@@ -120,33 +146,7 @@ Vérifier l'installation :
 brew --version
 ```
 
-### 2. Installer et préparer Ollama
-
-Ollama est installé sur l'environnement de développement. Pour l'installer avec Homebrew si nécessaire :
-
-```bash
-brew install --cask ollama
-```
-
-Télécharger le modèle local Mistral :
-
-```bash
-ollama pull mistral
-```
-
-Vérifier que le modèle est disponible :
-
-```bash
-ollama list
-```
-
-Ollama doit être lancé avant les appels de génération de l'API :
-
-```bash
-ollama serve
-```
-
-### 3. Créer l'environnement Python
+### 2. Préparer l'environnement Python local
 
 Depuis la racine du projet :
 
@@ -154,15 +154,10 @@ Depuis la racine du projet :
 python3.9 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-```
-
-Installer les dépendances :
-
-```bash
 pip install -r requirements.txt
 ```
 
-Les versions utilisées pour le socle RAG sont notamment :
+Versions principales utilisées :
 
 ```text
 langchain==0.1.20
@@ -173,121 +168,248 @@ qdrant-client==1.6.4
 pypdf==3.17.1
 huggingface_hub==0.24.5
 transformers==4.30.2
+minio==7.2.0
+reportlab
 ```
+
+`reportlab` est utilisé pour générer des PDF de test. L'image Airflow personnalisée installe également les dépendances nécessaires à l'ingestion dans `Dockerfile.airflow`.
+
+### 3. Préparer Mistral dans Ollama
+
+Ollama est désormais exécuté dans le service Docker `ollama`, et non plus comme service natif installé via Homebrew. Démarrer d'abord la stack, puis télécharger Mistral dans le conteneur :
+
+```bash
+docker compose up -d ollama
+docker exec -it ollama ollama pull mistral
+```
+
+Vérifier que le modèle est disponible :
+
+```bash
+docker exec -it ollama ollama list
+```
+
+Le modèle est conservé dans `data/ollama/`.
+
+### 4. Construire l'image Airflow personnalisée
+
+`Dockerfile.airflow` est basé sur `apache/airflow:2.7.1-python3.10` et installe les dépendances nécessaires directement dans l'image `rag-airflow:latest` :
+
+```bash
+docker build -f Dockerfile.airflow -t rag-airflow:latest .
+```
+
+Cette image évite l'installation des dépendances au démarrage et rend le lancement d'Airflow plus rapide et plus fiable.
 
 ## Démarrage des services
 
-### Qdrant et MinIO
+### Stack complète
 
-Le fichier minimal démarre les services nécessaires au test de recherche vectorielle :
-
-```bash
-docker compose -f docker-compose-minimal.yml up -d
-```
-
-Vérifier l'état des conteneurs :
+Depuis la racine du projet :
 
 ```bash
-docker compose -f docker-compose-minimal.yml ps
+docker compose up -d
 ```
 
-Les interfaces sont accessibles à l'adresse suivante :
-
-- Qdrant : <http://localhost:6333>
-- Console MinIO : <http://localhost:9001>
-- Identifiants MinIO de développement : `minioadmin` / `minioadmin`
-
-Arrêter les services :
+Vérifier l'état des six services :
 
 ```bash
-docker compose -f docker-compose-minimal.yml down
+docker compose ps
 ```
 
-Les données sont persistées dans `data/qdrant/` et `data/minio/`. Ne pas supprimer ces répertoires si les données locales doivent être conservées.
+Afficher les logs :
+
+```bash
+docker compose logs -f
+```
+
+L'interface Airflow est disponible sur <http://localhost:8080> avec les identifiants :
+
+```text
+Utilisateur : admin
+Mot de passe : admin
+```
+
+La console MinIO est accessible sur <http://localhost:9001> avec les identifiants de développement : `minioadmin` / `minioadmin`.
+
+Arrêter la stack :
+
+```bash
+docker compose down
+```
+
+Les données persistantes sont conservées dans `data/qdrant/`, `data/minio/` et `data/ollama/`. PostgreSQL utilise le volume Docker nommé `postgres_data`.
+
+## DAG Airflow d'ingestion
+
+Le fichier `dags/rag_ingestion.py` définit le DAG `rag_ingestion`, exécuté quotidiennement avec le schedule `@daily`. Il porte les tags `rag`, `ingestion` et `pfa`.
+
+Les quatre tâches sont exécutées séquentiellement :
+
+1. `check_services` vérifie l'accessibilité de Qdrant, MinIO et Ollama.
+2. `run_ingestion` lance `scripts/ingest.py`.
+3. `verify_indexation` vérifie la présence de points dans Qdrant et réalise une recherche de contrôle.
+4. `cleanup_old_data` constitue le placeholder du futur nettoyage des anciennes données.
+
+Pour lancer le DAG, ouvrir Airflow sur <http://localhost:8080>, rechercher `rag_ingestion`, puis l'activer et le déclencher depuis l'interface.
+
+## Script d'ingestion
+
+Le script `scripts/ingest.py` réalise les étapes suivantes :
+
+1. Upload des fichiers PDF et TXT vers le bucket MinIO `documents-raw`.
+2. Chargement des PDF avec `PyPDFLoader` et des TXT avec `TextLoader`.
+3. Découpage avec `RecursiveCharacterTextSplitter` (`chunk_size=1000`, `chunk_overlap=200`).
+4. Génération des embeddings avec `all-MiniLM-L6-v2` en 384 dimensions.
+5. Recréation de la collection `documents` et insertion dans Qdrant.
+
+Chaque point Qdrant contient notamment le texte, la source, la page, le `chunk_id` et la date `ingested_at`.
+
+Pour exécuter l'ingestion directement depuis un conteneur Airflow :
+
+```bash
+docker exec airflow-webserver python /opt/airflow/scripts/ingest.py
+```
+
+Le déclenchement recommandé reste toutefois le DAG Airflow, afin de conserver l'orchestration et la vérification de l'indexation.
+
+## Scripts de test
+
+### Recherche vectorielle
+
+`test_search.py` encode plusieurs questions avec `all-MiniLM-L6-v2`, interroge la collection `documents` et affiche les scores, les sources et les pages retournées :
+
+```bash
+python scripts/test_search.py
+```
+
+### Test complet du pipeline
+
+`test_pipeline.py` vérifie successivement :
+
+1. la présence des documents dans Qdrant ;
+2. la recherche vectorielle sur plusieurs questions ;
+3. la génération d'une réponse par Mistral via Ollama ;
+4. le pipeline RAG complet, de la recherche au contexte puis à la génération.
+
+Depuis l'hôte, avec Qdrant et Ollama exposés par Docker :
+
+```bash
+python scripts/test_pipeline.py
+```
+
+Le test complet du pipeline est validé pour l'ingestion, la recherche, le LLM et la génération RAG.
 
 ## Test de bout en bout
 
-Le test actuellement validé suit le parcours : **document TXT → découpage en chunks → embeddings → Qdrant → recherche sémantique**.
-
-Avec Qdrant démarré et l'environnement virtuel activé :
-
-```bash
-python scripts/test_e2e.py
-```
-
-Le script utilise le fichier `data/documents/test.txt`, génère les embeddings avec `all-MiniLM-L6-v2`, recrée la collection `test_documents`, insère les vecteurs puis exécute plusieurs questions de recherche.
-
-La sortie attendue se termine par :
+Le parcours Semaine 2 est le suivant :
 
 ```text
-============================================================
-TEST TERMINE AVEC SUCCES !
-============================================================
+PDF / TXT
+   -> upload MinIO
+   -> chargement LangChain
+   -> chunks de 1000 caractères avec overlap de 200
+   -> embeddings all-MiniLM-L6-v2 (384 dimensions)
+   -> indexation Qdrant
+   -> recherche vectorielle
+   -> contexte envoyé à Mistral via Ollama
+   -> réponse RAG
 ```
 
-Ce test valide la recherche vectorielle. Il ne constitue pas encore un test complet de génération avec Mistral, ni une évaluation RAGAS.
+Pour reproduire le pipeline :
 
-## Tableau des commandes utiles
+```bash
+source .venv/bin/activate
+docker compose up -d
+python scripts/ingest.py
+python scripts/test_search.py
+python scripts/test_pipeline.py
+```
+
+L'ingestion exécutée depuis l'hôte utilise les valeurs par défaut locales du script. Depuis Airflow, les services sont résolus avec les noms Docker `qdrant`, `minio` et `ollama`.
+
+## Commandes utiles
 
 | Action | Commande |
 |---|---|
 | Activer le venv | `source .venv/bin/activate` |
-| Installer les dépendances | `pip install -r requirements.txt` |
-| Démarrer Qdrant et MinIO | `docker compose -f docker-compose-minimal.yml up -d` |
-| Voir l'état des services | `docker compose -f docker-compose-minimal.yml ps` |
-| Voir les logs des services | `docker compose -f docker-compose-minimal.yml logs -f` |
-| Arrêter les services | `docker compose -f docker-compose-minimal.yml down` |
-| Lister les modèles Ollama | `ollama list` |
-| Télécharger Mistral | `ollama pull mistral` |
-| Démarrer Ollama | `ollama serve` |
-| Lancer le test E2E | `python scripts/test_e2e.py` |
+| Installer les dépendances locales | `pip install -r requirements.txt` |
+| Construire l'image Airflow | `docker build -f Dockerfile.airflow -t rag-airflow:latest .` |
+| Démarrer toute la stack | `docker compose up -d` |
+| Voir l'état des services | `docker compose ps` |
+| Voir tous les logs | `docker compose logs -f` |
+| Voir les logs Airflow | `docker compose logs -f airflow-webserver airflow-scheduler` |
+| Arrêter la stack | `docker compose down` |
+| Démarrer Ollama seul | `docker compose up -d ollama` |
+| Télécharger Mistral dans Ollama | `docker exec -it ollama ollama pull mistral` |
+| Lister les modèles Ollama | `docker exec -it ollama ollama list` |
+| Lancer l'ingestion | `python scripts/ingest.py` |
+| Tester la recherche | `python scripts/test_search.py` |
+| Tester le pipeline complet | `python scripts/test_pipeline.py` |
+| Exécuter l'ingestion dans Airflow | `docker exec airflow-webserver python /opt/airflow/scripts/ingest.py` |
 | Quitter le venv | `deactivate` |
 
 ## Problèmes rencontrés et solutions
 
-### `zsh: command not found: brew`
+### Conflit de dépendances LangChain
 
-Homebrew n'était pas installé ou son chemin n'était pas chargé par zsh. Installer Homebrew puis ajouter son environnement à `~/.zprofile` :
+Les versions initiales `langchain==0.1.0` et `langchain-community==0.0.10` provoquaient des conflits. Les versions retenues sont :
+
+```text
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-text-splitters==0.0.1
+```
+
+### `ImportError: cannot import name 'cached_download'`
+
+L'erreur provenait d'une incompatibilité avec `huggingface_hub`. Elle a été résolue avec :
 
 ```bash
-echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/opt/homebrew/bin/brew shellenv)"
+pip install "huggingface_hub==0.24.5" "transformers==4.30.2"
 ```
+
+### PostgreSQL : `wrong ownership`
+
+Le montage d'un répertoire local provoquait un problème de propriétaire avec PostgreSQL. La solution consiste à utiliser le volume Docker nommé `postgres_data` :
+
+```yaml
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+```
+
+### Airflow plante au premier démarrage
+
+L'installation des dépendances via `_PIP_ADDITIONAL_REQUIREMENTS` pouvait provoquer un timeout et ralentir le démarrage. La solution retenue est de construire l'image personnalisée `rag-airflow:latest` avec `Dockerfile.airflow`, les dépendances étant installées lors du build.
 
 ### `pull access denied for minio/minio`
 
-L'image `minio/minio` ayant été retirée de Docker Hub, utiliser l'image publiée sur Quay.io :
+L'image MinIO n'étant plus disponible à l'emplacement initial sur Docker Hub, la stack utilise :
 
 ```yaml
 image: quay.io/minio/minio:latest
 ```
 
-Cette configuration est déjà utilisée dans `docker-compose-minimal.yml`.
+### Symlink Airflow suivi par Git
 
-### Conflit de dépendances LangChain
+Le lien symbolique `logs/scheduler/latest` était suivi par Git. Il a été retiré du suivi et le répertoire `logs/` est ignoré par `.gitignore` afin de ne pas versionner les logs générés localement.
 
-Les premières versions `0.1.0` provoquaient un conflit entre LangChain et ses composants. Utiliser les versions compatibles suivantes :
+## Limites identifiées
 
-```bash
-pip install \
-	"langchain==0.1.20" \
-	"langchain-community==0.0.38" \
-	"langchain-text-splitters==0.0.1"
-```
+Le test complet du pipeline passe pour l'ingestion, la recherche, la génération LLM et le pipeline RAG. Une limite a toutefois été identifiée pour la question « Quelle est l'architecture technique ? » : la recherche ne retrouve pas correctement `guide_tech.pdf`.
 
-### `ImportError: cannot import name 'cached_download'`
+Deux facteurs expliquent ce résultat :
 
-Cette erreur provenait d'une incompatibilité entre `sentence-transformers`, `huggingface_hub` et `transformers`. Réinstaller les versions utilisées par le projet :
+- `all-MiniLM-L6-v2` est limité pour la recherche en français technique ;
+- le chunking regroupe le contenu de `guide_tech.pdf` en un seul chunk, ce qui dilue la spécificité recherchée.
 
-```bash
-pip install \
-	"huggingface_hub==0.24.5" \
-	"transformers==4.30.2"
-```
+Ces limites seront étudiées et mesurées pendant la phase d'évaluation RAGAS prévue en Semaine 6.
 
 ## État du projet
 
-Le socle local de recherche est opérationnel : Qdrant et MinIO démarrent avec Docker Compose, et le test document → embedding → Qdrant → recherche a été validé. L'architecture cible inclut également l'API FastAPI, l'interface Streamlit, Airflow, Ollama/Mistral, Langfuse, RAGAS et le déploiement Kubernetes décrit dans ce document.
+La Semaine 2 a ajouté la stack Docker Compose complète avec PostgreSQL, Airflow, Qdrant, MinIO et Ollama, ainsi que l'image Airflow personnalisée, l'ingestion PDF/TXT, le DAG quotidien et les tests de recherche et de pipeline RAG.
+
+Le socle d'ingestion, d'indexation et de génération locale est opérationnel. L'API FastAPI, l'interface Streamlit et le déploiement Kubernetes sont encore à venir. L'évaluation RAGAS et l'analyse des limites de retrieval sont prévues pour la Semaine 6.
 
 ## Auteur
 

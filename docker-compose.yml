@@ -102,6 +102,7 @@ services:
     networks:
       - rag-network
   
+  # ==== LLM LOCAL =====
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -111,6 +112,32 @@ services:
       - ./data/ollama:/root/.ollama
     networks:
       - rag-network
+  
+  # ===== API RAG =====
+  api-rag:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: api-rag
+    depends_on:
+      - qdrant
+      - ollama
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_MODEL=mistral
+      - COLLECTION_NAME=documents
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - PYTHONUNBUFFERED=1
+    networks:
+      - rag-network
+    restart: unless-stopped
 
 networks:
   rag-network:

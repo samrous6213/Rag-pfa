@@ -1,0 +1,21 @@
+# Web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Validation & config
+pydantic==2.4.2
+python-dotenv==1.0.0
+
+# HTTP client
+httpx==0.25.1
+
+# RAG stack
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-text-splitters==0.0.1
+sentence-transformers==2.2.2
+qdrant-client==1.6.4
+
+# Compatibilité transformers/huggingface
+huggingface_hub==0.24.5
+transformers==4.30.2

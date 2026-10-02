@@ -1,5 +1,5 @@
 """
-Fonctions utilitaires pour l'UI
+utils.py - Fonctions utilitaires pour l'UI
 """
 
 import os
@@ -96,3 +96,30 @@ def format_time(seconds: float) -> str:
         minutes = int(seconds // 60)
         secs = seconds % 60
         return f"{minutes}m {secs:.0f}s"
+
+def export_conversation(messages: list) -> str:
+    """Exporte la conversation en Markdown"""
+    from datetime import datetime
+
+    md = "# Conversation - Assistant Documentaire\n\n"
+    md += f"*Exporté le {datetime.now().strftime('%d/%m/%Y à %H:%M')}*\n\n"
+    md += "---\n\n"
+
+    for msg in messages:
+        if msg["role"] == "user":
+            md += f"## Utilisateur\n\n{msg['content']}\n\n"
+        else:
+            md += f"## Assistant\n\n{msg['content']}\n\n"
+
+            if msg.get("confidence") is not None:
+                md += f"*Confiance : {msg['confidence']*100:.0f}%*\n\n"
+
+            if msg.get("sources"):
+                md += "### Sources\n\n"
+                for i, src in enumerate(msg["sources"], 1):
+                    md += f"**{i}. {src.get('source', 'unknown')}** (page {src.get('page', 1)}) - score: {src.get('score', 0):.3f}\n\n"
+                    md += f"> {src.get('text', '')[:200]}...\n\n"
+
+            md += "---\n\n"
+
+    return md

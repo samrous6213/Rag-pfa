@@ -1,5 +1,5 @@
 """
-Interface Streamlit pour l'Assistant Documentaire RAG
+app.py - Interface Streamlit pour l'Assistant Documentaire RAG
 """
 
 import streamlit as st
@@ -76,6 +76,17 @@ with st.sidebar:
     if st.button("Rafraîchir", use_container_width=True):
         st.rerun()
 
+    if st.session_state.messages:
+        from utils import export_conversation
+        md_content = export_conversation(st.session_state.messages)
+        st.download_button(
+            label="Exporter la conversation",
+            data=md_content,
+            file_name=f"conversation_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
+
     st.markdown("---")
 
     st.markdown("""
@@ -125,14 +136,18 @@ else:
     question = st.chat_input("Posez votre question...")
 
 if question:
+    # 1. Ajouter et afficher la question immédiatement
     st.session_state.messages.append({
         "role": "user",
         "content": question
     })
+    render_user_message(question)
 
+    # 2. Spinner + appel API (la question reste visible au-dessus)
     with st.spinner("Recherche dans les documents et génération de la réponse..."):
         response = api_query(question, top_k=top_k, temperature=temperature)
 
+    # 3. Ajouter la réponse à la session
     if response and "error" in response:
         st.session_state.messages.append({
             "role": "assistant",
@@ -153,7 +168,32 @@ if question:
             "content": "Impossible d'obtenir une réponse"
         })
 
+    # 4. Rerun pour afficher proprement la réponse
     st.rerun()
 
+# ===== MODE RECHERCHE =====
+with st.expander("Mode recherche (sans LLM)"):
+    st.markdown("Recherchez directement dans les documents sans génération LLM.")
+
+    search_query = st.text_input("Rechercher...", key="search_input")
+    search_k = st.slider("Nombre de résultats", 1, 20, 5, key="search_k")
+
+    if st.button("Rechercher", key="search_btn"):
+        if search_query:
+            with st.spinner("Recherche..."):
+                results = api_search(search_query, search_k)
+
+            if results and "error" not in results:
+                st.success(f"{results['total']} résultats trouvés")
+                for i, r in enumerate(results["results"], 1):
+                    st.markdown(f"""
+**{i}. {r['source']}** (page {r['page']}) — Score : {r['score']:.3f}
+
+{r['text'][:300]}...
+
+---
+""")
+            else:
+                st.error(f"Erreur : {results.get('error', 'Inconnue')}")
 
 render_footer()

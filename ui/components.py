@@ -1,5 +1,5 @@
 """
-Composants réutilisables pour l'UI (Style minimaliste, chic et sans emojis)
+components.py - Composants réutilisables pour l'UI (Style minimaliste, chic et sans emojis)
 """
 
 import streamlit as st
@@ -157,8 +157,4 @@ def render_suggestions():
 
 def render_footer():
     """Affiche le footer positionné proprement en bas"""
-    st.markdown("""
-    <div class="footer">
-        Master Big Data & Cloud • Propulsé par Mistral 7B & Qdrant • Données 100% locales
-    </div>
-    """, unsafe_allow_html=True)
+    

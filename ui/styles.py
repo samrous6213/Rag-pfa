@@ -1,5 +1,5 @@
 """
-Styles CSS personnalisés pour Streamlit (Style chic, minimaliste, neutre et professionnel)
+styles.py - Styles CSS personnalisés pour Streamlit (Style chic, minimaliste, neutre et professionnel)
 """
 
 CUSTOM_CSS = """
@@ -242,5 +242,86 @@ html, body, [class*="css"] {
     border-top: 1px solid #e4e4e7;
     z-index: 999;
 }
+
+/* ===== SIDEBAR — TAILLES AJUSTÉES ===== */
+
+/* Titres de section (## Configuration, ## Actions...) */
+[data-testid="stSidebar"] h2 {
+    font-size: 0.85rem;
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+/* Sous-titres (### Statistiques, ### À propos...) */
+[data-testid="stSidebar"] h3 {
+    font-size: 0.8rem;
+    margin-top: 14px;
+    margin-bottom: 8px;
+}
+
+/* Labels des sliders et inputs */
+[data-testid="stSidebar"] label {
+    font-size: 0.78rem !important;
+    color: #52525b;
+}
+
+/* Valeurs affichées par les sliders */
+[data-testid="stSidebar"] [data-testid="stTickBarMin"],
+[data-testid="stSidebar"] [data-testid="stTickBarMax"] {
+    font-size: 0.7rem;
+    color: #a1a1aa;
+}
+
+/* Boutons */
+[data-testid="stSidebar"] .stButton > button {
+    font-size: 0.78rem;
+    padding: 6px 12px;
+}
+
+/* Métriques (Documents, Requêtes) */
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
+    font-size: 0.72rem;
+    color: #71717a;
+}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+/* Messages d'alerte (success, warning, error) */
+[data-testid="stSidebar"] [data-testid="stAlert"] {
+    font-size: 0.78rem;
+    padding: 8px 10px;
+}
+
+/* Expander (Détails techniques) */
+[data-testid="stSidebar"] .streamlit-expanderHeader {
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+/* Texte Markdown général (À propos, listes, paragraphes) */
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stMarkdown li {
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: #52525b;
+}
+
+/* Liens */
+[data-testid="stSidebar"] .stMarkdown a {
+    font-size: 0.78rem;
+    color: #18181b;
+    text-decoration: underline;
+}
+
+/* Séparateurs (---) */
+[data-testid="stSidebar"] hr {
+    margin: 12px 0;
+    border-color: #e4e4e7;
+}
+
+
+
 </style>
 """

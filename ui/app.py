@@ -1,77 +1,159 @@
 """
-Interface utilisateur pour le RAG
+Interface Streamlit pour l'Assistant Documentaire RAG
 """
 
 import streamlit as st
-import httpx
+from datetime import datetime
 
-st.set_page_config(
-    page_title="📚 Assistant Documentaire",
-    page_icon="📚",
-    layout="wide"
+from styles import CUSTOM_CSS
+from utils import api_query, api_health, api_stats, api_search
+from components import (
+    render_header,
+    render_user_message,
+    render_assistant_message,
+    render_sources,
+    render_sidebar_stats,
+    render_health_status,
+    render_suggestions,
+    render_footer
 )
 
-st.title("📚 Assistant Documentaire Intelligent")
-st.markdown("Posez vos questions sur les documents d'entreprise")
+st.set_page_config(
+    page_title="Assistant Documentaire RAG",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Sidebar
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    top_k = st.slider("Nombre de documents à récupérer", 1, 10, 3)
-    st.markdown("---")
-    st.markdown("### 📊 À propos")
-    st.markdown("""
-    Ce système utilise:
-    - **Qdrant** pour la recherche vectorielle
-    - **Mistral 7B** (local) pour la génération
-    - **Sentence Transformers** pour les embeddings
-    """)
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Chat
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Afficher l'historique
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if "sources" in message:
-            with st.expander("📚 Sources"):
-                for src in message["sources"]:
-                    st.markdown(f"**{src['source']}** (page {src['page']})")
-                    st.caption(src['text'][:300] + "...")
+if "pending_question" not in st.session_state:
+    st.session_state.pending_question = None
 
-# Input
-if question := st.chat_input("Posez votre question..."):
-    # Ajouter la question
-    st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.markdown(question)
-    
-    # Appel API
-    with st.chat_message("assistant"):
-        with st.spinner("🔍 Recherche dans les documents..."):
-            try:
-                response = httpx.post(
-                    "http://api-rag:8000/query",
-                    json={"question": question, "top_k": top_k},
-                    timeout=60.0
-                )
-                data = response.json()
-                
-                st.markdown(data["answer"])
-                st.caption(f"Confiance: {data['confidence']}")
-                
-                with st.expander("📚 Sources"):
-                    for src in data["sources"]:
-                        st.markdown(f"**{src['source']}** (page {src['page']})")
-                        st.caption(src['text'][:300] + "...")
-                
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": data["answer"],
-                    "sources": data["sources"]
-                })
-                
-            except Exception as e:
-                st.error(f"Erreur: {e}")
+
+with st.sidebar:
+    st.markdown("## Configuration")
+
+    top_k = st.slider(
+        "Nombre de documents",
+        min_value=1,
+        max_value=10,
+        value=3,
+        help="Combien de passages récupérer dans la base"
+    )
+
+    temperature = st.slider(
+        "Créativité du modèle",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.1,
+        step=0.1,
+        help="0 = déterministe, 1 = créatif"
+    )
+
+    st.markdown("---")
+
+    st.markdown("## État des services")
+    health = api_health()
+    render_health_status(health)
+
+    stats = api_stats()
+    if stats:
+        render_sidebar_stats(stats)
+
+    st.markdown("---")
+
+    st.markdown("## Actions")
+
+    if st.button("Effacer la conversation", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
+    if st.button("Rafraîchir", use_container_width=True):
+        st.rerun()
+
+    st.markdown("---")
+
+    st.markdown("""
+    ### À propos
+
+    Cet assistant utilise :
+    - **Mistral 7B** (LLM local)
+    - **Qdrant** (base vectorielle)
+    - **Sentence Transformers** (embeddings)
+
+    Toutes les données restent **locales**.
+    """)
+
+
+render_header()
+
+
+chat_container = st.container()
+
+with chat_container:
+    if not st.session_state.messages:
+        suggested = render_suggestions()
+        if suggested:
+            st.session_state.pending_question = suggested
+            st.rerun()
+
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            render_user_message(message["content"])
+        else:
+            render_assistant_message(
+                answer=message["content"],
+                confidence=message.get("confidence"),
+                processing_time=message.get("processing_time"),
+                model=message.get("model")
+            )
+            if message.get("sources"):
+                render_sources(message["sources"])
+
+
+
+
+if st.session_state.pending_question:
+    question = st.session_state.pending_question
+    st.session_state.pending_question = None
+else:
+    question = st.chat_input("Posez votre question...")
+
+if question:
+    st.session_state.messages.append({
+        "role": "user",
+        "content": question
+    })
+
+    with st.spinner("Recherche dans les documents et génération de la réponse..."):
+        response = api_query(question, top_k=top_k, temperature=temperature)
+
+    if response and "error" in response:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"Erreur : {response['error']}"
+        })
+    elif response:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": response["answer"],
+            "sources": response.get("sources", []),
+            "confidence": response.get("confidence"),
+            "processing_time": response.get("processing_time"),
+            "model": response.get("model")
+        })
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Impossible d'obtenir une réponse"
+        })
+
+    st.rerun()
+
+
+render_footer()

@@ -39,8 +39,23 @@ class QdrantService:
                 "status": info.status.value if hasattr(info.status, 'value') else str(info.status)
             }
         except Exception as e:
-            logger.error(f"Erreur get_collection_info: {e}")
-            return {"name": self.collection_name, "points_count": 0, "error": str(e)}
+            logger.warning(f"Parsing Qdrant échoué ({type(e).__name__}), fallback sur l'API HTTP brute")
+            try:
+                import requests
+                url = f"http://{settings.QDRANT_HOST}:{settings.QDRANT_PORT}/collections/{self.collection_name}"
+                r = requests.get(url, timeout=5)
+                r.raise_for_status()
+                data = r.json().get("result", {})
+                return {
+                    "name": self.collection_name,
+                    "points_count": data.get("points_count", 0),
+                    "vectors_count": data.get("vectors_count", 0),
+                    "status": data.get("status", "unknown")
+                }
+            except Exception as e2:
+                logger.error(f"Fallback HTTP échoué: {e2}")
+                return {"name": self.collection_name, "points_count": 0, "error": str(e2)}
+
 
     def search(
         self,

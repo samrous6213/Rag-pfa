@@ -180,3 +180,58 @@ def search_only(query: str, top_k: int = 5) -> Dict[str, Any]:
         "total": len(results),
         "query": query
     }
+
+async def answer_question_stream(
+    question: str,
+    top_k: int = 3,
+    temperature: float = 0.1
+):
+    """
+    Version streaming de answer_question.
+    Yield des événements SSE (chaînes formatées).
+    """
+    import json
+
+    start_time = time.time()
+    logger.info(f"[STREAM] Question : {question}")
+
+    logger.info("[STREAM] Embedding...")
+    query_vector = embedding_service.encode(question)
+
+    logger.info(f"[STREAM] Recherche des {top_k} documents...")
+    sources = qdrant_service.search(
+        query_vector=query_vector,
+        top_k=top_k,
+        score_threshold=settings.MIN_SCORE_THRESHOLD
+    )
+
+    if not sources:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Aucun document pertinent trouvé'})}\n\n"
+        return
+
+    sources_data = [
+        {
+            "source": s["source"],
+            "page": s.get("page", 1),
+            "score": round(s["score"], 4),
+            "text": s["text"][:300] + "..." if len(s["text"]) > 300 else s["text"],
+            "chunk_id": s.get("chunk_id")
+        }
+        for s in sources
+    ]
+
+    confidence = calculate_confidence(sources)
+
+    yield f"data: {json.dumps({'type': 'sources', 'sources': sources_data, 'confidence': round(confidence, 4)})}\n\n"
+
+    context = build_context(sources)
+    prompt = build_rag_prompt(question, context)
+
+    logger.info("[STREAM] Génération...")
+    async for token in ollama_service.generate_stream(prompt, temperature):
+        yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+
+    processing_time = time.time() - start_time
+    logger.info(f"[STREAM] Terminé en {processing_time:.2f}s")
+
+    yield f"data: {json.dumps({'type': 'done', 'processing_time': round(processing_time, 2), 'confidence': round(confidence, 4), 'model': settings.OLLAMA_MODEL})}\n\n"

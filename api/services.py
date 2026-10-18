@@ -159,6 +159,48 @@ class OllamaService:
         except Exception as e:
             logger.error(f"Erreur generate: {e}")
             return f"Erreur: {str(e)}"
+    async def generate_stream(
+        self,
+        prompt: str,
+        temperature: float = 0.1,
+        max_tokens: int = 1000
+    ):
+        """
+        Génère une réponse en streaming (async generator).
+        Yield les tokens au fur et à mesure.
+        """
+        import json
+
+        try:
+            async with httpx.AsyncClient(timeout=settings.OLLAMA_TIMEOUT) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": True,
+                        "options": {
+                            "temperature": temperature,
+                            "num_predict": max_tokens
+                        }
+                    }
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
+                            token = data.get("response", "")
+                            if token:
+                                yield token
+                            if data.get("done", False):
+                                break
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            logger.error(f"Erreur streaming Ollama: {e}")
+            yield f"\n[Erreur: {str(e)}]"
 
 
 # Instances globales (singletons)

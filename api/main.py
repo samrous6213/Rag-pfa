@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 
 from config import settings
 from models import (
@@ -17,7 +18,7 @@ from models import (
     HealthResponse, StatsResponse
 )
 from services import qdrant_service, ollama_service, embedding_service
-from rag import answer_question, search_only
+from rag import answer_question, answer_question_stream, search_only
 
 
 logging.basicConfig(
@@ -150,6 +151,29 @@ async def query(request: QueryRequest):
     except Exception as e:
         logger.error(f"Erreur /query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+        
+@app.post("/query/stream", tags=["RAG"])
+async def query_stream(request: QueryRequest):
+    """
+    Version streaming de /query.
+    Retourne des Server-Sent Events (SSE).
+    """
+    logger.info(f"POST /query/stream - Question: {request.question}")
+
+    return StreamingResponse(
+        answer_question_stream(
+            question=request.question,
+            top_k=request.top_k,
+            temperature=request.temperature
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.post("/search", response_model=SearchResponse, tags=["Recherche"])

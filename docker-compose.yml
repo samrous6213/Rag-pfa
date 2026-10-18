@@ -18,6 +18,7 @@ services:
       retries: 5
     networks:
       - rag-network
+    restart: unless-stopped
 
   # ===== ORCHESTRATION AIRFLOW =====
   airflow-webserver:
@@ -48,6 +49,7 @@ services:
       retries: 5
     networks:
       - rag-network
+    restart: unless-stopped
 
   airflow-scheduler:
     image: apache/airflow:2.7.1-python3.10
@@ -68,6 +70,7 @@ services:
     command: scheduler
     networks:
       - rag-network
+    restart: unless-stopped
 
   # ===== VECTOR DB =====
   qdrant:
@@ -80,6 +83,7 @@ services:
       - ./data/qdrant:/qdrant/storage
     networks:
       - rag-network
+    restart: unless-stopped
 
   # ===== STOCKAGE OBJET =====
   minio:
@@ -101,6 +105,7 @@ services:
       retries: 3
     networks:
       - rag-network
+    restart: unless-stopped
   
   # ==== LLM LOCAL =====
   ollama:
@@ -112,6 +117,7 @@ services:
       - ./data/ollama:/root/.ollama
     networks:
       - rag-network
+    restart: unless-stopped
   
   # ===== API RAG =====
   api-rag:

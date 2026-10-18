@@ -141,6 +141,10 @@ services:
       - COLLECTION_NAME=documents
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
       - PYTHONUNBUFFERED=1
+      - LANGFUSE_SECRET_KEY=sk-lf-c2eff114-5e11-475f-8b44-26ed54b1f7a4
+      - LANGFUSE_PUBLIC_KEY=pk-lf-73905202-ad13-4c99-87ee-7edaa8549638
+      - LANGFUSE_HOST=http://host.docker.internal:3000
+      - LANGFUSE_DEBUG=True
     networks:
       - rag-network
     restart: unless-stopped

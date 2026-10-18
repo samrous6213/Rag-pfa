@@ -19,6 +19,7 @@ from models import (
 )
 from services import qdrant_service, ollama_service, embedding_service
 from rag import answer_question, answer_question_stream, search_only
+from monitoring import langfuse
 
 
 logging.basicConfig(
@@ -32,6 +33,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Actions au démarrage et à l'arrêt"""
     logger.info("Démarrage de l'API RAG...")
+
+    # Test de connexion Langfuse
+    if langfuse:
+        try:
+            # Nouvelle API v4 : start_as_current_observation
+            with langfuse.start_as_current_observation(as_type="span", name="test-connexion") as span:
+                span.update(output="Connexion réussie")
+            langfuse.flush()
+            logger.info("Connexion Langfuse OK")
+        except Exception as e:
+            logger.error(f"Erreur Langfuse: {e}")
 
     if qdrant_service.health_check():
         logger.info("Qdrant est accessible")
@@ -152,7 +164,7 @@ async def query(request: QueryRequest):
         logger.error(f"Erreur /query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-        
+
 @app.post("/query/stream", tags=["RAG"])
 async def query_stream(request: QueryRequest):
     """
